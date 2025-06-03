@@ -6,6 +6,7 @@ from telebot import types
 from web3 import Web3
 from languages import get_text
 
+# Connect to blockchain
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 PRIVATE_KEY = os.environ.get("PRIVATE_KEY")
 RPC_URL = os.environ.get("RPC_URL")
