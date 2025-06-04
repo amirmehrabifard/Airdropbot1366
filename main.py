@@ -13,7 +13,7 @@ RPC_URL = os.environ.get("RPC_URL")
 PORT = int(os.environ.get("PORT", 8000))
 
 # 🟡 اطلاعات ثابت
-CHANNEL_USERNAME = "benjaminfranklintoken"
+CHANNEL_LINK = "https://t.me/benjaminfranklintoken"
 CONTRACT_ADDRESS = Web3.to_checksum_address("0xd5baB4C1b92176f9690c0d2771EDbF18b73b8181")
 AIRDROP_WALLET = Web3.to_checksum_address("0x6CE41726a93445750788f7e65A2bc81E95B700aE")
 
@@ -62,9 +62,9 @@ def handle_start(message):
         users[user_id] = {"joined": False, "wallet": None, "invited_by": ref, "referrals": []}
         save_users(users)
 
-    text = get_text("welcome", lang).format(channel=CHANNEL_USERNAME)
+    text = get_text("welcome", lang).format(channel=CHANNEL_LINK)
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(get_text("joined_btn", lang), url=f"https://t.me/{CHANNEL_USERNAME}"))
+    markup.add(types.InlineKeyboardButton(get_text("joined_btn", lang), url=CHANNEL_LINK))
     markup.add(types.InlineKeyboardButton(get_text("check_btn", lang), callback_data="check"))
     bot.send_message(user_id, text, reply_markup=markup)
 
@@ -73,7 +73,7 @@ def check_joined(call):
     user_id = str(call.from_user.id)
     lang = call.from_user.language_code or "en"
     try:
-        member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", call.from_user.id)
+        member = bot.get_chat_member("@benjaminfranklintoken", call.from_user.id)
         if member.status in ["member", "administrator", "creator"]:
             if not users[user_id]["joined"]:
                 users[user_id]["joined"] = True
@@ -132,7 +132,7 @@ def reward_tokens(user_id, amount):
     except Exception as e:
         print(f"❌ Reward Error: {e}")
 
-# ✅ Webhook را تنظیم کن
+# ✅ تنظیم Webhook
 if __name__ == "__main__":
     WEBHOOK_URL = "https://airdropbot1366-production.up.railway.app/webhook"
     bot.remove_webhook()
