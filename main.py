@@ -1,23 +1,25 @@
 import os
 import json
+import time
 from flask import Flask, request
 import telebot
 from telebot import types
 from web3 import Web3
-from languages import get_text
+from languages import get_text  # مطمئن شو فایل languages.py و متد get_text هست
 
-# 🔐 محیط‌ها
+# 🔐 مقادیر محیطی (در Railway تنظیم کن)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 PRIVATE_KEY = os.environ.get("PRIVATE_KEY")
 RPC_URL = os.environ.get("RPC_URL")
 PORT = int(os.environ.get("PORT", 8000))
 
-# 🟡 اطلاعات ثابت
+# 🟡 اطلاعات ایردراپ
+CHANNEL_USERNAME = "@benjaminfranklintoken"
 CHANNEL_LINK = "https://t.me/benjaminfranklintoken"
 CONTRACT_ADDRESS = Web3.to_checksum_address("0xd5baB4C1b92176f9690c0d2771EDbF18b73b8181")
 AIRDROP_WALLET = Web3.to_checksum_address("0x6CE41726a93445750788f7e65A2bc81E95B700aE")
 
-# اتصال به بلاک‌چین
+# اتصال به بلاکچین
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 with open("abi.json") as f:
     abi = json.load(f)
@@ -26,7 +28,7 @@ contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=abi)
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# 📁 فایل کاربران
+# 📁 فایل ذخیره کاربران
 DATA_FILE = "users.json"
 
 def load_users():
@@ -73,7 +75,7 @@ def check_joined(call):
     user_id = str(call.from_user.id)
     lang = call.from_user.language_code or "en"
     try:
-        member = bot.get_chat_member("@benjaminfranklintoken", call.from_user.id)
+        member = bot.get_chat_member(CHANNEL_USERNAME, call.from_user.id)
         if member.status in ["member", "administrator", "creator"]:
             if not users[user_id]["joined"]:
                 users[user_id]["joined"] = True
@@ -132,9 +134,10 @@ def reward_tokens(user_id, amount):
     except Exception as e:
         print(f"❌ Reward Error: {e}")
 
-# ✅ تنظیم Webhook
+# ✅ اجرای نهایی و تنظیم Webhook
 if __name__ == "__main__":
     WEBHOOK_URL = "https://airdropbot1366-production.up.railway.app/webhook"
     bot.remove_webhook()
+    time.sleep(1)
     bot.set_webhook(url=WEBHOOK_URL)
     app.run(host="0.0.0.0", port=PORT)
