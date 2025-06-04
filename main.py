@@ -1,171 +1,32 @@
-import os
-import json
-import secrets
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from web3 import Web3
-from db import setup_db, add_user, get_user_by_id, get_user_by_invite_code, save_wallet_address, get_wallet_address, is_invite_rewarded, mark_invite_rewarded
+import os import logging from aiogram import Bot, Dispatcher, types from aiogram.types import ParseMode from aiogram.utils import executor from aiogram.dispatcher.middlewares import BaseMiddleware from aiogram.dispatcher.handler import CancelHandler from aiogram.dispatcher import FSMContext from aiogram.contrib.fsm_storage.memory import MemoryStorage from aiogram.dispatcher.filters.state import State, StatesGroup from web3 import Web3 from uuid import uuid4 from dotenv import load_dotenv from db import setup_db, add_user, get_user_by_id, get_user_by_invite_code, save_wallet_address, get_wallet_address, is_invite_rewarded, mark_invite_rewarded
 
-# Environment variables (set these in Railway or your env, DO NOT hardcode private keys here)
-BOT_TOKEN = "7279696446:AAEMrXD2-3PwP3eeMph_alwd5UniUKW_NC0"  # Replace this with your bot token or env variable
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")  # Your wallet private key (set safely)
-BSC_RPC = "https://bsc-dataseed.binance.org/"  # BNB Smart Chain mainnet RPC
-TOKEN_ADDRESS = Web3.to_checksum_address("0xd5baB4C1b92176f9690c0d2771EDbF18b73b8181")  # BJF token contract address
-OWNER_ADDRESS = Web3.to_checksum_address("0xd5F168CFa6a68C21d7849171D6Aa5DDc9307E544")  # Your airdrop wallet address
+load_dotenv()
 
-# Load token ABI
-with open("token_abi.json") as f:
-    TOKEN_ABI = json.load(f)
+API_TOKEN = os.getenv("BOT_TOKEN") PRIVATE_KEY = os.getenv("PRIVATE_KEY") AIR_DROP_WALLET = "0xd5F168CFa6a68C21d7849171D6Aa5DDc9307E544" TOKEN_CONTRACT = "0xd5baB4C1b92176f9690c0d2771EDbF18b73b8181" DECIMALS = 18 BASE_URL = "https://airdropbot1366-production.up.railway.app" NETWORK_URL = "https://bsc-dataseed.binance.org/"
 
-# Setup bot and web3
-bot = telebot.TeleBot(BOT_TOKEN)
-w3 = Web3(Web3.HTTPProvider(BSC_RPC))
+bot = Bot(token=API_TOKEN) dp = Dispatcher(bot, storage=MemoryStorage()) web3 = Web3(Web3.HTTPProvider(NETWORK_URL)) contract_abi = [...] # Paste your full ABI list here contract = web3.eth.contract(address=Web3.to_checksum_address(TOKEN_CONTRACT), abi=contract_abi)
 
-if not w3.is_connected():
-    print("Failed to connect to BSC RPC")
-    exit(1)
+State machine 
 
-contract = w3.eth.contract(address=TOKEN_ADDRESS, abi=TOKEN_ABI)
+class WalletStates(StatesGroup): waiting_for_wallet = State()
 
-setup_db()
+Middleware to ensure user is member of the channel 
 
-def generate_invite_code():
-    return secrets.token_hex(4)
+class CheckSubscriptionMiddleware(BaseMiddleware): async def on_pre_process_update(self, update: types.Update, data: dict): if update.message: user_id = update.message.from_user.id try: member = await bot.get_chat_member(chat_id='@benjaminfranklintoken', user_id=user_id) if member.status not in ['member', 'creator', 'administrator']: await update.message.answer("Please join our channel first: https://t.me/benjaminfranklintoken") raise CancelHandler() except: await update.message.answer("Please join our channel first: https://t.me/benjaminfranklintoken") raise CancelHandler()
 
-def send_welcome_message(user_id):
-    text = ("Welcome to BenjaminFranklinToken Bot!\n"
-            "Use /start to get your unique invite link.\n"
-            "Join and invite friends to earn BJF tokens.\n\n"
-            "To participate, you must provide your BEP20 wallet address.")
-    bot.send_message(user_id, text)
+dp.middleware.setup(CheckSubscriptionMiddleware())
 
-def build_invite_link(invite_code):
-    # Format your bot link + start parameter
-    return f"https://t.me/BenjaminFranklinTokenBot?start={invite_code}"
+Command: /start 
 
-def send_wallet_request(user_id):
-    text = "Please send your BNB Smart Chain wallet address (BEP20) to receive your tokens."
-    bot.send_message(user_id, text)
+@dp.message_handler(commands=['start']) async def send_welcome(message: types.Message): setup_db() user_id = message.from_user.id args = message.get_args() inviter_id = None if args: inviter = get_user_by_invite_code(args) if inviter: inviter_id = inviter[0]
 
-def send_error(user_id, message):
-    bot.send_message(user_id, f"Error: {message}")
+user_data = get_user_by_id(user_id) if not user_data: invite_code = str(uuid4())[:8] add_user(user_id, invite_code, inviter_id) await message.answer("Welcome! Please send me your BNB Smart Chain wallet address to receive 500 BJF tokens.") await WalletStates.waiting_for_wallet.set() else: await message.answer("You are already registered.") Handle wallet submission 
 
-def send_success(user_id, message):
-    bot.send_message(user_id, message)
+@dp.message_handler(state=WalletStates.waiting_for_wallet) async def handle_wallet(message: types.Message, state: FSMContext): user_id = message.from_user.id wallet = message.text.strip()
 
-def transfer_tokens(to_address, amount_wei):
-    nonce = w3.eth.get_transaction_count(OWNER_ADDRESS)
-    tx = contract.functions.transfer(to_address, amount_wei).build_transaction({
-        'chainId': 56,
-        'gas': 150000,
-        'gasPrice': w3.to_wei('5', 'gwei'),
-        'nonce': nonce,
-    })
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key=PRIVATE_KEY)
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-    return tx_hash.hex()
+if not web3.is_address(wallet): await message.answer("Invalid wallet address. Please send a valid BNB address.") return save_wallet_address(user_id, wallet) await state.finish() await send_tokens(wallet, 500) await message.answer("✅ 500 BJF tokens sent to your wallet!\nYour invite link: {}?start={}".format(BASE_URL, get_user_by_id(user_id)[1])) inviter_id = get_user_by_id(user_id)[2] if inviter_id and not is_invite_rewarded(inviter_id, user_id): inviter_wallet = get_wallet_address(inviter_id) if inviter_wallet: await send_tokens(inviter_wallet, 100) mark_invite_rewarded(inviter_id, user_id) await bot.send_message(inviter_id, f"🎉 You invited someone and earned 100 BJF tokens!") Token transfer function 
 
-@bot.message_handler(commands=['start'])
-def handle_start(message):
-    user_id = message.from_user.id
-    args = message.text.split()
+async def send_tokens(to_address, amount): try: nonce = web3.eth.get_transaction_count(AIR_DROP_WALLET) txn = contract.functions.transfer( Web3.to_checksum_address(to_address), int(amount * (10 ** DECIMALS)) ).build_transaction({ 'chainId': 56, 'gas': 200000, 'gasPrice': web3.to_wei('5', 'gwei'), 'nonce': nonce }) signed_txn = web3.eth.account.sign_transaction(txn, private_key=PRIVATE_KEY) tx_hash = web3.eth.send_raw_transaction(signed_txn.rawTransaction) return web3.to_hex(tx_hash) except Exception as e: logging.error(f"Error sending tokens: {e}") return None
 
-    if len(args) > 1:
-        # User started with a referral code: /start invitecode
-        invite_code = args[1]
-        inviter = get_user_by_invite_code(invite_code)
-        if inviter and inviter[0] != user_id:
-            # Create user if new
-            if not get_user_by_id(user_id):
-                new_code = generate_invite_code()
-                add_user(user_id=user_id, invite_code=new_code, inviter_id=inviter[0])
-            else:
-                new_code = get_user_by_id(user_id)[1]
+if name == 'main': from aiogram import executor executor.start_polling(dp, skip_updates=True)
 
-            send_success(user_id, f"Your invite link: {build_invite_link(new_code)}")
-            send_wallet_request(user_id)
-            # Give inviter reward if not already rewarded
-            if not is_invite_rewarded(inviter[0], user_id):
-                try:
-                    amount = 100 * 10**18  # 100 BJF tokens with decimals=18
-                    tx_hash = transfer_tokens(get_wallet_address(inviter[0]) or "", amount)
-                    if tx_hash:
-                        mark_invite_rewarded(inviter[0], user_id)
-                        send_success(inviter[0], f"You got 100 BJF tokens for inviting a friend!")
-                except Exception as e:
-                    send_error(user_id, f"Failed to send invite reward: {str(e)}")
-
-        else:
-            # Invalid or no inviter, just add user normally
-            if not get_user_by_id(user_id):
-                new_code = generate_invite_code()
-                add_user(user_id=user_id, invite_code=new_code)
-            else:
-                new_code = get_user_by_id(user_id)[1]
-
-            send_success(user_id, f"Your invite link: {build_invite_link(new_code)}")
-            send_wallet_request(user_id)
-    else:
-        # Normal start without referral
-        if not get_user_by_id(user_id):
-            new_code = generate_invite_code()
-            add_user(user_id=user_id, invite_code=new_code)
-        else:
-            new_code = get_user_by_id(user_id)[1]
-
-        send_success(user_id, f"Your invite link: {build_invite_link(new_code)}")
-        send_wallet_request(user_id)
-
-@bot.message_handler(func=lambda m: True)
-def handle_wallet_address(message):
-    user_id = message.from_user.id
-    wallet = message.text.strip()
-
-    if not wallet.startswith("0x") or len(wallet) != 42:
-        send_error(user_id, "Invalid wallet address. Please send a valid BSC wallet address.")
-        return
-
-    # Save wallet address
-    save_wallet_address(user_id, wallet)
-
-    # Send initial airdrop 500 tokens if not rewarded
-    user = get_user_by_id(user_id)
-    if user and user[4] == 0:
-        try:
-            amount = 500 * 10**18
-            tx_hash = transfer_tokens(wallet, amount)
-            if tx_hash:
-                # Mark rewarded to prevent re-airdrops
-                conn = sqlite3.connect("bot_db.sqlite3")
-                c = conn.cursor()
-                c.execute("UPDATE users SET rewarded=1 WHERE user_id=?", (user_id,))
-                conn.commit()
-                conn.close()
-                send_success(user_id, f"500 BJF tokens airdropped to your wallet!\nTx: {tx_hash}")
-            else:
-                send_error(user_id, "Failed to send initial tokens.")
-        except Exception as e:
-            send_error(user_id, f"Error sending tokens: {str(e)}")
-    else:
-        send_success(user_id, "Your wallet address is updated. Thanks!")
-
-if __name__ == "__main__":
-    print("Bot is running...")
-    bot.remove_webhook()
-    # Set webhook URL on railway or your server here, example:
-    WEBHOOK_URL = "https://airdropbot1366-production.up.railway.app/"  # Replace with your real URL
-    bot.set_webhook(url=WEBHOOK_URL)
-
-    import flask
-    from flask import request
-
-    app = flask.Flask(__name__)
-
-    @app.route("/", methods=["POST"])
-    def webhook():
-        json_str = request.get_data().decode("utf-8")
-        update = telebot.types.Update.de_json(json_str)
-        bot.process_new_updates([update])
-        return ""
-
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
